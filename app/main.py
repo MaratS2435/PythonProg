@@ -8,7 +8,7 @@ from . import models
 from .database import Session, engine, get_session
 from .models import UsersRegister, UsersPublic, Users
 from .tasks import send_telegram_message
-from app.config import ACCESS_TOKEN_EXPIRE_MINUTES, TELEGRAM_CHAT_ID, SECRET_KEY, ALGORITHM
+from app.config import SECRET_KEY, ALGORITHM
 from .auth import create_tokens
 from .oauth import router as oauth_router
 
@@ -43,7 +43,6 @@ async def register(user: UsersRegister, session: Session = Depends(get_session))
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Хэширование пароля
     hashed_password = bcrypt.hashpw(user.password.encode(), bcrypt.gensalt())
 
     telegram_id = user.telegram_id
@@ -81,7 +80,6 @@ async def login(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Проверка пароля
     if not bcrypt.checkpw(user_input.password.encode(), user.hashed_password.encode()):
         raise HTTPException(status_code=400, detail='Wrong password')
 
@@ -93,19 +91,17 @@ async def login(
     await session.commit()
     await session.refresh(new_login_history)
 
-    # Генерация Access Token и Refresh Token
     access_token, refresh_token = create_tokens(user.email, user.role)
 
     # Установка Refresh Token в httpOnly cookie
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,  # Только для сервера, недоступен из JavaScript
+        httponly=True,
         secure=False,
-        samesite="lax"  # Защита от CSRF
+        samesite="lax"
     )
 
-    # Возврат Access Token в теле ответа
     return {
         "access_token": access_token,
         "token_type": "bearer"
@@ -138,31 +134,6 @@ async def refresh(
         raise HTTPException(status_code=401, detail='Refresh token expired')
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail='Invalid refresh token')
-
-
-def decode_jwt(token: str = Depends(oauth2_scheme)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get('email')
-        user_id = payload.get('id')
-        if email is None or id is None:
-            raise HTTPException(status_code=401, detail='Invalid token')
-        return {'id': user_id, 'email': email}
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail='Token expired')
-    except jwt.JWTError:
-        raise HTTPException(status_code=401, detail='Invalid token')
-
-
-@app.get('/user/', response_model=UsersPublic) #для тестирования jwt токена
-async def get_user(user_info=Depends(decode_jwt), session: Session = Depends(get_session)):
-    query = select(Users).where(Users.email == user_info['email'])
-    result = await session.execute(query)
-    user = result.scalars().first()
-    if not user:
-        raise HTTPException(status_code=404, detail='User not found')
-
-    return user
 
 @app.post('/change_user/')
 async def change_role(user_id: int, new_role: str, token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):

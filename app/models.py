@@ -1,6 +1,3 @@
-from typing import Optional, List
-
-from sqlalchemy import JSON
 from sqlmodel import SQLModel, Field, Column, TIMESTAMP
 from datetime import datetime, UTC
 

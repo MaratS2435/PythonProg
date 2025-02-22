@@ -1,13 +1,10 @@
 import httpx
-import requests
-from fastapi import APIRouter, Request, Response, Depends
+from fastapi import APIRouter, Response, Depends
 from fastapi.responses import RedirectResponse
-from authlib.integrations.starlette_client import OAuth
 from sqlmodel import select
 import logging
-from urllib.parse import quote
 from app.auth import create_tokens
-from app.config import SECRET_KEY, YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET, YANDEX_REDIRECT_URL, VK_CLIENT_ID, \
+from app.config import YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET, YANDEX_REDIRECT_URL, VK_CLIENT_ID, \
     VK_REDIRECT_URL, VK_CLIENT_SECRET
 from app.database import Session, get_session
 from app.models import Users, LoginHistory
@@ -43,11 +40,13 @@ async def auth_yandex_callback(code: str, telegram_id: int, resp: Response = Non
     }
     async with httpx.AsyncClient() as client:
         response = await client.post(token_url, data=data)
+    print(response.json())
     access_token = response.json()["access_token"]
 
     # Получение информации о пользователе
+    user_info_url = "https://login.yandex.ru/info"
     async with httpx.AsyncClient() as client:
-        response = await client.get(token_url, params={"format": "json", "oauth_token": access_token})
+        response = await client.get(user_info_url, params={"format": "json", "oauth_token": access_token})
     user_info = response.json()
 
     logger.info(user_info)
@@ -76,7 +75,6 @@ async def auth_yandex_callback(code: str, telegram_id: int, resp: Response = Non
     # Создание JWT
     access_token, refresh_token = create_tokens(user_info["default_email"], role)
 
-    # Установка Refresh Token в httpOnly cookie
     resp.set_cookie(
         key="refresh_token",
         value=refresh_token,
@@ -85,7 +83,6 @@ async def auth_yandex_callback(code: str, telegram_id: int, resp: Response = Non
         samesite="lax"  # Защита от CSRF
     )
 
-    # Возврат Access Token в теле ответа
     return {
         "access_token": access_token,
         "token_type": "bearer"
@@ -95,10 +92,10 @@ def get_vk_auth_url():
     return (
         "https://oauth.vk.com/authorize?"
         "response_type=code&"
-        f"client_id={VK_CLIENT_ID}&"       # Идентификатор вашего приложения VK
-        f"redirect_uri={VK_REDIRECT_URL}&"    # URL, куда VK перенаправит пользователя после авторизации
-        "display=page&"                      # Вид отображения страницы авторизации
-        "scope=email&"        # Перечень прав доступа (настраивайте по необходимости)
+        f"client_id={VK_CLIENT_ID}&"
+        f"redirect_uri={VK_REDIRECT_URL}&"
+        "display=page&"
+        "scope=email&"
     )
 
 @router.get("/vk/")
@@ -143,16 +140,14 @@ async def vk_callback(code: str, telegram_id: int, resp: Response = None, sessio
 
     access_token, refresh_token = create_tokens(user_info["email"], role)
 
-    # Установка Refresh Token в httpOnly cookie
     resp.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,  # Только для сервера, недоступен из JavaScript
+        httponly=True,
         secure=False,
-        samesite="lax"  # Защита от CSRF
+        samesite="lax"
     )
 
-    # Возврат Access Token в теле ответа
     return {
         "access_token": access_token,
         "token_type": "bearer"
